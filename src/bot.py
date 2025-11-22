@@ -12,9 +12,23 @@ from telegram.ext import (
     filters,
 )
 
-from .config import settings
-from .managers import ConversationManager, OperatorManager, OperatorStatus
-from .storage import JsonStore
+try:  # normal package import when running via `python -m src.bot`
+    from .config import settings
+    from .managers import ConversationManager, OperatorManager, OperatorStatus
+    from .storage import JsonStore
+except ImportError:  # fallback for `python src/bot.py`
+    import sys
+    from pathlib import Path
+
+    PACKAGE_DIR = Path(__file__).resolve().parent
+    if str(PACKAGE_DIR) not in sys.path:
+        sys.path.append(str(PACKAGE_DIR))
+    if str(PACKAGE_DIR.parent) not in sys.path:
+        sys.path.append(str(PACKAGE_DIR.parent))
+
+    from config import settings  # type: ignore
+    from managers import ConversationManager, OperatorManager, OperatorStatus  # type: ignore
+    from storage import JsonStore  # type: ignore
 
 
 logging.basicConfig(
