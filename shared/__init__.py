@@ -1,8 +1,8 @@
 """
-Общие типы и вспомогательные функции, доступные боту и бэкенду.
+Общие перечисления для бота.
 """
 
-from . import enums, schemas
+from . import enums
 
-__all__ = ["enums", "schemas"]
+__all__ = ["enums"]
 

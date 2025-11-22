@@ -7,15 +7,14 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from shared.enums import MessageSender
-from shared.schemas import MessageCreate
 
+from . import templates
 from .config import get_settings
 from .faq import FAQResponder
-from .history_client import HistoryClient
 from .operators import OperatorManager, OperatorState
 from .queue import QueueManager
 from .sessions import SessionRegistry
-from . import templates
+from .storage import Storage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,29 +34,31 @@ faq_responder = FAQResponder(
         "какие способы оплаты": "Мы принимаем оплату картой, наличными курьеру и онлайн-оплату в приложении.",
     }
 )
-history_client = HistoryClient(settings.backend_base_url, settings.backend_api_token)
+storage = Storage(settings.database_url)
 
 client_profiles: Dict[int, str] = {}
 
 
 async def log_message(client_id: int, operator_id: Optional[int], sender: MessageSender, text: str):
-    payload = MessageCreate(
-        client_telegram_id=client_id,
-        operator_telegram_id=operator_id,
-        sender=sender,
-        text=text,
-    )
     try:
-        await history_client.log_message(payload)
+        await asyncio.to_thread(storage.log_message, client_id, operator_id, sender, text)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to log message: %s", exc)
 
 
 async def close_session_history(client_id: int):
     try:
-        await history_client.close_session(client_id)
+        await asyncio.to_thread(storage.close_session, client_id)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to close session: %s", exc)
+
+
+async def fetch_history(client_id: int, limit: int):
+    try:
+        return await asyncio.to_thread(storage.get_history, client_id, limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to load history: %s", exc)
+        return []
 
 
 async def attach_client_to_operator(client_id: int, operator_state: OperatorState):
@@ -131,6 +132,41 @@ async def operator_status(message: Message):
         f"Очередь: {len(queue_manager)}.",
         protect_content=True,
     )
+
+
+@dp.message(Command("history"))
+async def operator_history(message: Message, command: CommandObject):
+    if not operator_manager.is_operator(message.from_user.id):
+        return
+    args = (command.args or "").split()
+    if not args:
+        await message.answer("Используйте: /history <client_id> [limit]", protect_content=True)
+        return
+    try:
+        client_id = int(args[0])
+    except ValueError:
+        await message.answer("client_id должен быть числом.", protect_content=True)
+        return
+    limit = settings.history_limit
+    if len(args) > 1:
+        try:
+            limit = min(settings.history_limit, max(5, int(args[1])))
+        except ValueError:
+            pass
+    rows = await fetch_history(client_id, limit)
+    if not rows:
+        await message.answer("История пуста.", protect_content=True)
+        return
+    lines = [f"История клиента {client_id} (последние {len(rows)} сообщений):"]
+    for row in rows:
+        prefix = {
+            MessageSender.CLIENT: "КЛИЕНТ",
+            MessageSender.OPERATOR: "ОПЕРАТОР",
+            MessageSender.BOT: "БОТ",
+        }[row.sender]
+        ts = row.created_at.strftime("%d.%m %H:%M")
+        lines.append(f"[{ts}] {prefix}: {row.text}")
+    await message.answer("\n".join(lines), protect_content=True)
 
 
 @dp.message(Command("use"))
@@ -256,10 +292,7 @@ async def process_operator_text(message: Message):
 
 
 async def main():
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await history_client.aclose()
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":

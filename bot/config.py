@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     auto_reply_text: str = Field(
         "Все операторы заняты, подключим вас в ближайшее время.", alias="AUTO_REPLY_TEXT"
     )
-    backend_base_url: str = Field("http://localhost:8000", alias="BACKEND_BASE_URL")
-    backend_api_token: str = Field(..., alias="BACKEND_API_TOKEN")
+    database_url: str = Field("sqlite:///./support.db", alias="DATABASE_URL")
+    history_limit: int = Field(30, alias="HISTORY_LIMIT", ge=5, le=100)
 
 
 @lru_cache
